@@ -156,7 +156,7 @@ unsafe impl Callback for AuthSessionTicketResponse {
     const ID: i32 = 163;
     const SIZE: i32 = ::std::mem::size_of::<sys::GetAuthSessionTicketResponse_t>() as i32;
 
-    unsafe fn from_raw(raw: *mut libc::c_void) -> Self {
+    unsafe fn from_raw(raw: *mut c_void) -> Self {
         let val = &mut *(raw as *mut sys::GetAuthSessionTicketResponse_t);
         AuthSessionTicketResponse {
             ticket: AuthTicket(val.m_hAuthTicket),
@@ -187,7 +187,7 @@ unsafe impl Callback for ValidateAuthTicketResponse {
     const ID: i32 = 143;
     const SIZE: i32 = ::std::mem::size_of::<sys::ValidateAuthTicketResponse_t>() as i32;
 
-    unsafe fn from_raw(raw: *mut libc::c_void) -> Self {
+    unsafe fn from_raw(raw: *mut c_void) -> Self {
         let val = &mut *(raw as *mut sys::ValidateAuthTicketResponse_t);
         ValidateAuthTicketResponse {
             steam_id: SteamId(val.m_SteamID.m_steamid.m_unAll64Bits),
@@ -205,6 +205,63 @@ unsafe impl Callback for ValidateAuthTicketResponse {
                 sys::EAuthSessionResponse::k_EAuthSessionResponsePublisherIssuedBan => Err(AuthSessionValidateError::PublisherIssuedBan),
                 _ => unreachable!(),
             }
+        }
+    }
+}
+
+/// Called when a connection to the Steam servers is made.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SteamServersConnected;
+
+unsafe impl Callback for SteamServersConnected {
+    const ID: i32 = 101;
+    const SIZE: i32 = ::std::mem::size_of::<sys::SteamServersConnected_t>() as i32;
+
+    unsafe fn from_raw(_: *mut c_void) -> Self {
+        SteamServersConnected
+    }
+}
+
+/// Called when the connection to the Steam servers is lost.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SteamServersDisconnected {
+    /// The reason we were disconnected from the Steam servers
+    pub reason: SteamError
+}
+
+unsafe impl Callback for SteamServersDisconnected {
+    const ID: i32 = 103;
+    const SIZE: i32 = ::std::mem::size_of::<sys::SteamServersDisconnected_t>() as i32;
+
+    unsafe fn from_raw(raw: *mut c_void) -> Self {
+        let val = &mut *(raw as *mut sys::SteamServersDisconnected_t);
+        SteamServersDisconnected {
+            reason: val.m_eResult.into()
+        }
+    }
+}
+
+/// Called when the connection to the Steam servers fails.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SteamServerConnectFailure {
+    /// The reason we failed to connect to the Steam servers
+    pub reason: SteamError,
+    /// Whether we are still retrying the connection.
+    pub still_retrying: bool,
+}
+
+unsafe impl Callback for SteamServerConnectFailure {
+    const ID: i32 = 102;
+    const SIZE: i32 = ::std::mem::size_of::<sys::SteamServerConnectFailure_t>() as i32;
+
+    unsafe fn from_raw(raw: *mut c_void) -> Self {
+        let val = &mut *(raw as *mut sys::SteamServerConnectFailure_t);
+        SteamServerConnectFailure {
+            reason: val.m_eResult.into(),
+            still_retrying: val.m_bStillRetrying
         }
     }
 }

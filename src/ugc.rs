@@ -7,6 +7,9 @@ use std::fmt;
 use std::marker;
 use std::mem;
 use std::path::Path;
+use std::os::raw::c_char;
+
+pub const RESULTS_PER_PAGE: u32 = sys::kNumUGCResultsPerPage as u32;
 
 pub struct UGC<Manager> {
     pub(crate) ugc: *mut sys::ISteamUGC,
@@ -24,6 +27,11 @@ const UGCQueryHandleInvalid: u64 = 0xffffffffffffffff;
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PublishedFileId(pub u64);
+impl From<u64> for PublishedFileId {
+    fn from(id: u64) -> Self {
+        PublishedFileId(id)
+    }
+}
 
 /// Workshop item types to search for
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +111,29 @@ impl Into<sys::EWorkshopFileType> for FileType {
             FileType::SteamworksAccessInvite => sys::EWorkshopFileType::k_EWorkshopFileTypeSteamworksAccessInvite,
             FileType::SteamVideo => sys::EWorkshopFileType::k_EWorkshopFileTypeSteamVideo,
             FileType::GameManagedItem => sys::EWorkshopFileType::k_EWorkshopFileTypeGameManagedItem,
+        }
+    }
+}
+impl From<sys::EWorkshopFileType> for FileType {
+    fn from(file_type: sys::EWorkshopFileType) -> FileType {
+        match file_type {
+            sys::EWorkshopFileType::k_EWorkshopFileTypeCommunity => FileType::Community,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeMicrotransaction => FileType::Microtransaction,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeCollection => FileType::Collection,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeArt => FileType::Art,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeVideo => FileType::Video,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeScreenshot => FileType::Screenshot,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeGame => FileType::Game,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeSoftware => FileType::Software,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeConcept => FileType::Concept,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeWebGuide => FileType::WebGuide,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeIntegratedGuide => FileType::IntegratedGuide,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeMerch => FileType::Merch,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeControllerBinding => FileType::ControllerBinding,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeSteamworksAccessInvite => FileType::SteamworksAccessInvite,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeSteamVideo => FileType::SteamVideo,
+            sys::EWorkshopFileType::k_EWorkshopFileTypeGameManagedItem => FileType::GameManagedItem,
+            _ => unreachable!()
         }
     }
 }
@@ -275,7 +306,7 @@ unsafe impl Callback for DownloadItemResult {
     const ID: i32 = CALLBACK_BASE_ID + 6;
     const SIZE: i32 = ::std::mem::size_of::<sys::DownloadItemResult_t>() as i32;
 
-    unsafe fn from_raw(raw: *mut libc::c_void) -> Self {
+    unsafe fn from_raw(raw: *mut c_void) -> Self {
         let val = &mut *(raw as *mut sys::DownloadItemResult_t);
         DownloadItemResult {
             app_id: AppId(val.m_unAppID),
@@ -416,7 +447,7 @@ impl <Manager> UGC<Manager> {
     pub fn item_install_info(&self, item: PublishedFileId) -> Option<InstallInfo> {
         unsafe {
             let mut size_on_disk = 0u64;
-            let mut folder = [0 as libc::c_char; 4096];
+            let mut folder = [0 as c_char; 4096];
             let mut timestamp = 0u32;
             if sys::SteamAPI_ISteamUGC_GetItemInstallInfo(self.ugc, item.0, &mut size_on_disk, folder.as_mut_ptr(), folder.len() as _, &mut timestamp) {
                 Some(InstallInfo {
@@ -1099,7 +1130,7 @@ impl<'a> QueryResults<'a> {
 
     /// Gets the preview URL of the published file at the specified index.
     pub fn preview_url(&self, index: u32) -> Option<String> {
-        let mut url = [0 as libc::c_char; 4096];
+        let mut url = [0 as c_char; 4096];
 
         let ok = unsafe {
             sys::SteamAPI_ISteamUGC_GetQueryUGCPreviewURL(self.ugc, self.handle, index, url.as_mut_ptr(), url.len() as _)
@@ -1178,6 +1209,7 @@ impl<'a> QueryResults<'a> {
                 num_children: raw_details.m_unNumChildren,
                 tags,
                 tags_truncated: raw_details.m_bTagsTruncated,
+                file_type: raw_details.m_eFileType.into()
             })
         }
     }
@@ -1186,6 +1218,26 @@ impl<'a> QueryResults<'a> {
     pub fn iter<'b>(&'b self) -> impl Iterator<Item=Option<QueryResult>> + 'b {
         (0..self.returned_results())
             .map(move |i| self.get(i))
+    }
+
+    /// Returns the given index's children as a list of PublishedFileId.
+    ///
+    /// You must call `include_children(true)` before fetching the query for this to work.
+    ///
+    /// Returns None if the index was out of bounds.
+    pub fn get_children(&self, index: u32) -> Option<Vec<PublishedFileId>> {
+        let num_children = self.get(index)?.num_children;
+        let mut children: Vec<sys::PublishedFileId_t> = vec![0; num_children as usize];
+
+        let ok = unsafe {
+            sys::SteamAPI_ISteamUGC_GetQueryUGCChildren(self.ugc, self.handle, index, children.as_mut_ptr(), num_children)
+        };
+
+        if ok {
+            Some(children.into_iter().map(Into::into).collect())
+        } else {
+            None
+        }
     }
 }
 
@@ -1206,6 +1258,7 @@ pub struct QueryResult {
     pub accepted_for_use: bool,
     pub tags: Vec<String>,
     pub tags_truncated: bool,
+    pub file_type: FileType,
 
     pub url: String,
     pub num_upvotes: u32,
