@@ -965,6 +965,15 @@ impl <Manager> ItemListDetailsQuery<Manager> {
         self
     }
 
+    /// Include key value tags in results
+    pub fn include_key_value_tags(self, include: bool) -> Self {
+        let ok = unsafe {
+            sys::SteamAPI_ISteamUGC_SetReturnKeyValueTags(self.ugc, self.handle.unwrap(), include)
+        };
+        debug_assert!(ok);
+        self
+    }
+
     /// Runs the query
     pub fn fetch<F>(mut self, cb: F)
         where F: for<'a> FnOnce(Result<QueryResults<'a>,SteamError>) + 'static + Send
